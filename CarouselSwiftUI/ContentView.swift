@@ -11,7 +11,7 @@ struct ContentView: View {
     @State private var images: [ImageModel] = []
     @State private var index: Int = 0
     @State private var previewImage: UIImage?
-
+    
     var body: some View {
         NavigationStack {
             VStack {
@@ -24,7 +24,7 @@ struct ContentView: View {
             }
         }
     }
-
+    
     private func loadImages() async {
         guard images.isEmpty else { return }
         
@@ -43,20 +43,40 @@ struct PreviewImageView: View {
     @Binding var previewImage: UIImage?
     @Binding var index: Int
     let images: [ImageModel]
-
+    
     var body: some View {
         GeometryReader { geometry in
             if let previewImage {
-                Image(uiImage: previewImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: geometry.size.width, height: geometry.size.height)
-                    .clipped()
-                    .onChange(of: index) { _, newValue in
-                        withAnimation(.easeInOut(duration: 0.5)) {
-                            self.previewImage = UIImage(named: images[newValue].imageName)
+                ZStack() {
+                    Image(uiImage: previewImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                        .onChange(of: index) { _, newValue in
+                            withAnimation(.easeInOut(duration: 0.5)) {
+                                self.previewImage = UIImage(named: images[newValue].imageName)
+                            }
                         }
-                    }
+                    
+                    BlurView(style: .systemUltraThinMaterialLight)
+                    //                        .opacity(0.9) // Adjust opacity for lighter blur
+                        .ignoresSafeArea()
+                    
+                    Image(uiImage: previewImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                        .onChange(of: index) { _, newValue in
+                            withAnimation(.easeInOut(duration: 0.5)) {
+                                self.previewImage = UIImage(named: images[newValue].imageName)
+                            }
+                        }
+                    
+                }
+                
+                
             }
         }
         .padding(.vertical, 15)
@@ -66,7 +86,7 @@ struct PreviewImageView: View {
 struct ImageCarouselView: View {
     @Binding var images: [ImageModel]
     @Binding var index: Int
-
+    
     var body: some View {
         GeometryReader { geometry in
             let pageWidth = geometry.size.width / 3
@@ -77,22 +97,25 @@ struct ImageCarouselView: View {
                     ForEach(images) { image in
                         if let thumbnail = image.thumbnail {
                             Image(uiImage: thumbnail)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(
-                                width: imageWidth,
-                                height: geometry.size.height
-                            )
-                            .clipShape(
-                                RoundedRectangle(
-                                    cornerRadius: 10,
-                                    style: .continuous
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(
+                                    width: imageWidth,
+                                    height: geometry.size.height
                                 )
-                            )
-                            .frame(
-                                width: pageWidth,
-                                height: geometry.size.height
-                            )
+                                .clipShape(
+                                    RoundedRectangle(
+                                        cornerRadius: 10,
+                                        style: .continuous
+                                    )
+                                )
+                                .frame(
+                                    width: pageWidth,
+                                    height: geometry.size.height
+                                )
+                                .onTapGesture {
+                                    print("hello")
+                                }
                         }
                     }
                 }
@@ -131,15 +154,15 @@ struct SnapCarouselHelper: UIViewRepresentable {
     var pageWidth: CGFloat
     var pageCount: Int
     @Binding var index: Int
-
+    
     func makeUIView(context: Context) -> UIView {
         UIView()
     }
-
+    
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
     }
-
+    
     func updateUIView(_ uiView: UIView, context: Context) {
         DispatchQueue.main.async {
             if let scrollView = findScrollView(in: uiView) {
@@ -150,7 +173,7 @@ struct SnapCarouselHelper: UIViewRepresentable {
             }
         }
     }
-
+    
     private func findScrollView(in view: UIView) -> UIScrollView? {
         var currentView: UIView? = view
         while let superview = currentView?.superview {
@@ -161,18 +184,18 @@ struct SnapCarouselHelper: UIViewRepresentable {
         }
         return nil
     }
-
+    
     class Coordinator: NSObject, UIScrollViewDelegate {
         var parent: SnapCarouselHelper
         var pageCount: Int
         var pageWidth: CGFloat
-
+        
         init(parent: SnapCarouselHelper) {
             self.parent = parent
             self.pageCount = parent.pageCount
             self.pageWidth = parent.pageWidth
         }
-
+        
         func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
             let targetEnd = scrollView.contentOffset.x + (velocity.x * 60)
             let targetIndex = (targetEnd / pageWidth).rounded()
@@ -186,3 +209,24 @@ struct SnapCarouselHelper: UIViewRepresentable {
 #Preview {
     ContentView()
 }
+
+
+struct BlurView: UIViewRepresentable {
+    var style: UIBlurEffect.Style = .light // Customize the style here
+    
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        let blurEffect = UIBlurEffect(style: style)
+        let blurEffectView = UIVisualEffectView(effect: blurEffect)
+        blurEffectView.frame = view.bounds
+        blurEffectView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(blurEffectView)
+        return view
+    }
+    
+    func updateUIView(_ uiView: UIView, context: Context) {
+        // No update needed for static blur
+    }
+}
+
+
