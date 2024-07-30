@@ -6,81 +6,183 @@
 //
 
 import SwiftUI
-import CoreData
 
 struct ContentView: View {
-    @Environment(\.managedObjectContext) private var viewContext
-
-    @FetchRequest(
-        sortDescriptors: [NSSortDescriptor(keyPath: \Item.timestamp, ascending: true)],
-        animation: .default)
-    private var items: FetchedResults<Item>
+    @State private var images: [ImageModel] = []
+    @State private var index: Int = 0
+    @State private var previewImage: UIImage?
 
     var body: some View {
-        NavigationView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp!, formatter: itemFormatter)")
-                    } label: {
-                        Text(item.timestamp!, formatter: itemFormatter)
-                    }
-                }
-                .onDelete(perform: deleteItems)
+        NavigationStack {
+            VStack {
+                PreviewImageView(previewImage: $previewImage, index: $index, images: images)
+                ImageCarouselView(images: $images, index: $index)
             }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                }
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
-                }
-            }
-            Text("Select an item")
-        }
-    }
-
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(context: viewContext)
-            newItem.timestamp = Date()
-
-            do {
-                try viewContext.save()
-            } catch {
-                // Replace this implementation with code to handle the error appropriately.
-                // fatalError() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
-                let nsError = error as NSError
-                fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
+            .background(BackgroundView())
+            .task {
+                await loadImages()
             }
         }
     }
 
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            offsets.map { items[$0] }.forEach(viewContext.delete)
-
-            do {
-                try viewContext.save()
-            } catch {
-                // Replace this implementation with code to handle the error appropriately.
-                // fatalError() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
-                let nsError = error as NSError
-                fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
+    private func loadImages() async {
+        guard images.isEmpty else { return }
+        
+        for i in 1...35 {
+            let imageName = "image_\(i)"
+            if let thumbnail = await UIImage(named: imageName)?.byPreparingThumbnail(ofSize: .init(width: 300, height: 300)) {
+                images.append(ImageModel(imageName: imageName, thumbnail: thumbnail))
             }
+        }
+        
+        previewImage = UIImage(named: images.first?.imageName ?? "")
+    }
+}
+
+struct PreviewImageView: View {
+    @Binding var previewImage: UIImage?
+    @Binding var index: Int
+    let images: [ImageModel]
+
+    var body: some View {
+        GeometryReader { geometry in
+            if let previewImage {
+                Image(uiImage: previewImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .clipped()
+                    .onChange(of: index) { _, newValue in
+                        withAnimation(.easeInOut(duration: 0.5)) {
+                            self.previewImage = UIImage(named: images[newValue].imageName)
+                        }
+                    }
+            }
+        }
+        .padding(.vertical, 15)
+    }
+}
+
+struct ImageCarouselView: View {
+    @Binding var images: [ImageModel]
+    @Binding var index: Int
+
+    var body: some View {
+        GeometryReader { geometry in
+            let pageWidth = geometry.size.width / 3
+            let imageWidth: CGFloat = 100
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 0) {
+                    ForEach(images) { image in
+                        if let thumbnail = image.thumbnail {
+                            Image(uiImage: thumbnail)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(
+                                width: imageWidth,
+                                height: geometry.size.height
+                            )
+                            .clipShape(
+                                RoundedRectangle(
+                                    cornerRadius: 10,
+                                    style: .continuous
+                                )
+                            )
+                            .frame(
+                                width: pageWidth,
+                                height: geometry.size.height
+                            )
+                        }
+                    }
+                }
+                .padding(.horizontal, (geometry.size.width - pageWidth) / 2)
+                .background {
+                    SnapCarouselHelper(pageWidth: pageWidth, pageCount: images.count, index: $index)
+                }
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color.white, lineWidth: 3)
+                    .frame(width: imageWidth, height: geometry.size.height)
+            }
+        }
+        .frame(height: 120)
+        .padding(.bottom, 10)
+    }
+}
+
+struct BackgroundView: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color.black.opacity(0.9).gradient)
+            .rotationEffect(.degrees(-180))
+            .ignoresSafeArea()
+    }
+}
+
+struct ImageModel: Identifiable {
+    var id = UUID()
+    var imageName: String
+    var thumbnail: UIImage?
+}
+
+struct SnapCarouselHelper: UIViewRepresentable {
+    var pageWidth: CGFloat
+    var pageCount: Int
+    @Binding var index: Int
+
+    func makeUIView(context: Context) -> UIView {
+        UIView()
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        DispatchQueue.main.async {
+            if let scrollView = findScrollView(in: uiView) {
+                scrollView.decelerationRate = .fast
+                scrollView.delegate = context.coordinator
+                context.coordinator.pageCount = pageCount
+                context.coordinator.pageWidth = pageWidth
+            }
+        }
+    }
+
+    private func findScrollView(in view: UIView) -> UIScrollView? {
+        var currentView: UIView? = view
+        while let superview = currentView?.superview {
+            if let scrollView = superview as? UIScrollView {
+                return scrollView
+            }
+            currentView = superview
+        }
+        return nil
+    }
+
+    class Coordinator: NSObject, UIScrollViewDelegate {
+        var parent: SnapCarouselHelper
+        var pageCount: Int
+        var pageWidth: CGFloat
+
+        init(parent: SnapCarouselHelper) {
+            self.parent = parent
+            self.pageCount = parent.pageCount
+            self.pageWidth = parent.pageWidth
+        }
+
+        func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+            let targetEnd = scrollView.contentOffset.x + (velocity.x * 60)
+            let targetIndex = (targetEnd / pageWidth).rounded()
+            let index = min(max(Int(targetIndex), 0), pageCount - 1)
+            parent.index = index
+            targetContentOffset.pointee.x = targetIndex * pageWidth
         }
     }
 }
 
-private let itemFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.dateStyle = .short
-    formatter.timeStyle = .medium
-    return formatter
-}()
-
 #Preview {
-    ContentView().environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)
+    ContentView()
 }
